@@ -20,6 +20,7 @@ def parse_problems(lines: list):
         problems.append((metabolite_masses, adducts_masses, signal_masses))
     return problems
 
+@ray.remote
 def find_optimal_ma_comb(signal: float, pos_metabolites: list, pos_adducts: list):
     best_delta = 2**10 # e.g. infinity
     best_comb = (0, 0) # indices
@@ -34,16 +35,6 @@ def find_optimal_ma_comb(signal: float, pos_metabolites: list, pos_adducts: list
                 best_comb = (pos_metabolites.index(metabolite), pos_adducts.index(adduct))
     return best_comb
 
-@ray.remote
-def solve_problem(problem: tuple):
-    signal_results = []
-    metabolite_m, adducts_m, signal_m = problem
-    for signal in signal_m:
-        optimal_comb = find_optimal_ma_comb(signal, metabolite_m, adducts_m)
-        wanted_indices = list(map(lambda i: str(i + 1), optimal_comb))
-        signal_results.append(wanted_indices)
-    return signal_results
-
 
 if __name__ == "__main__":
     input_path = argv[1]
@@ -54,13 +45,16 @@ if __name__ == "__main__":
         fh = open(input_path)
         lines = fh.read().splitlines()[1:]
     problems = parse_problems(lines)
-    ray.put(problems)
     # Solve each problem
-    results_ids = []
+    result_ids = []
     for problem in problems:
-        results_ids.append(solve_problem.remote(problem))
-    results = ray.get(results_ids)
-    for problem_results in results:
-        for signal_result in problem_results:
-            print(' '.join(signal_result))
+        metabolite_m, adducts_m, signal_m = problem
+        for signal in signal_m:
+            optimal_comb = find_optimal_ma_comb.remote(signal, metabolite_m, adducts_m)
+            result_ids.append(optimal_comb)
+    results = ray.get(result_ids)
+
+    for result in results:
+        wanted_indices = list(map(lambda i: str(i + 1), result))
+        print(' '.join(wanted_indices))
     # Q2 big took 0m29,975s
