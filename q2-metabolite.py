@@ -1,8 +1,10 @@
 from multiprocessing.dummy import Pool as ThreadPool
 from sys import argv
+import sys
 import zipfile
-import ray
-ray.init(num_cpus=8)
+import numpy as np
+# import ray
+# ray.init(num_cpus=8)
 
 def chunks(l: list, n: int):
     # https://stackoverflow.com/a/1751478/5329317
@@ -14,26 +16,42 @@ def parse_problems(lines: list):
     problems_lines = chunks(lines, 4)
     for problem_lines in problems_lines:
         problem_lines = problem_lines[1:] # remove counts line
-        metabolite_masses = list(map(float, problem_lines[0].strip().split(' ')))
-        adducts_masses = list(map(float, problem_lines[1].strip().split(' ')))
-        signal_masses = list(map(float, problem_lines[2].strip().split(' ')))
+        metabolite_strings = problem_lines[0].strip().split(' ')
+        metabolite_masses = np.unique(np.asarray(metabolite_strings, dtype=np.single))
+        adducts_strings = problem_lines[1].strip().split(' ')
+        adducts_masses = np.unique(np.asarray(adducts_strings, dtype=np.single))
+        signal_strings = problem_lines[2].strip().split(' ')
+        signal_masses = np.asarray(signal_strings, dtype=np.single)
         problems.append((metabolite_masses, adducts_masses, signal_masses))
     return problems
 
-@ray.remote
-def find_optimal_ma_comb(signal: float, pos_metabolites: list, pos_adducts: list):
-    best_delta = 2**10 # e.g. infinity
-    best_comb = (0, 0) # indices
-    for metabolite in pos_metabolites:
-        for adduct in pos_adducts:
+# @ray.remote
+def find_optimal_ma_comb(signal: float, pos_metabolites: np.array, pos_adducts: np.array):
+    best_delta = 10 ** 5 # eg infinity
+    best_indices = None
+    for ai, adduct in enumerate(pos_adducts):
+        adduct_f = float(adduct)
+        pos_weights = adduct_f + pos_metabolites 
+        positive_pos_weights = pos_weights[pos_weights >= 0.0] # remove negative weights
+        pos_deltas = positive_pos_weights - signal
+        if np.amin(pos_deltas) < best_delta:
+            mi = np.argmin(pos_deltas)
+            best_indices = (mi, ai)
+            if (np.amin(pos_deltas) == 0.0):
+                return best_indices
+    return best_indices
+
+
+def create_weight_2darray(pos_metabolites: list, pos_adducts: list):
+    weight_arr = np.zeros(shape=(len(pos_metabolites), len(pos_adducts)))
+
+    for mi, metabolite in enumerate(pos_metabolites):
+        for ai, adduct in enumerate(pos_adducts):
             combined_mass = metabolite + adduct
-            if combined_mass < 0: # Can't be negative
-                continue
-            delta = abs(combined_mass - signal)
-            if delta < best_delta:
-                best_delta = delta
-                best_comb = (pos_metabolites.index(metabolite), pos_adducts.index(adduct))
-    return best_comb
+            if combined_mass < 0:
+                combined_mass = 10**3
+            weight_arr[mi, ai] = combined_mass
+    return weight_arr
 
 
 if __name__ == "__main__":
@@ -45,14 +63,16 @@ if __name__ == "__main__":
         fh = open(input_path)
         lines = fh.read().splitlines()[1:]
     problems = parse_problems(lines)
+
     # Solve each problem
     result_ids = []
     for problem in problems:
-        metabolite_m, adducts_m, signal_m = problem
-        for signal in signal_m:
-            optimal_comb = find_optimal_ma_comb.remote(signal, metabolite_m, adducts_m)
+        pos_metabolites, pos_adducts, signals = problem
+        signals = signals[:10]
+        for signal in signals:
+            optimal_comb = find_optimal_ma_comb(signal, pos_metabolites, pos_adducts)
             result_ids.append(optimal_comb)
-    results = ray.get(result_ids)
+    results = result_ids # ray.get(result_ids)
 
     for result in results:
         wanted_indices = list(map(lambda i: str(i + 1), result))
