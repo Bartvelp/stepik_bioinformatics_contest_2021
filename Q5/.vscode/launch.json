@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["q2_test_case.txt"]
+            "args": ["q5_sample.txt", "~/Downloads/public_easy/20-mouse-simple-exact.txt"]
         }
     ]
 }

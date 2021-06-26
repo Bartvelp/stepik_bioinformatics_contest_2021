@@ -3,6 +3,7 @@ from sys import argv
 import sys
 import zipfile
 import numpy as np
+import math
 # import ray
 # ray.init(num_cpus=8)
 
@@ -11,47 +12,46 @@ def chunks(l: list, n: int):
     n = max(1, n)
     return list(l[i:i+n] for i in range(0, len(l), n))
 
+def find_nearest(array, value, sorter):
+    # Adapted from https://stackoverflow.com/a/26026189/5329317
+    idx = np.searchsorted(array, value, side="left", sorter=sorter)
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx-1]) < math.fabs(value - array[idx])):
+        return array[idx-1], idx - 1
+    else:
+        return array[idx], idx
+
+
 def parse_problems(lines: list):
     problems = []
     problems_lines = chunks(lines, 4)
     for problem_lines in problems_lines:
         problem_lines = problem_lines[1:] # remove counts line
         metabolite_strings = problem_lines[0].strip().split(' ')
-        metabolite_masses = np.unique(np.asarray(metabolite_strings, dtype=np.single))
+        metabolite_masses = np.asarray(metabolite_strings, dtype=np.single)
+
         adducts_strings = problem_lines[1].strip().split(' ')
-        adducts_masses = np.unique(np.asarray(adducts_strings, dtype=np.single))
+        adducts_masses = np.asarray(adducts_strings, dtype=np.single)
+
         signal_strings = problem_lines[2].strip().split(' ')
         signal_masses = np.asarray(signal_strings, dtype=np.single)
+
         problems.append((metabolite_masses, adducts_masses, signal_masses))
     return problems
 
-# @ray.remote
-def find_optimal_ma_comb(signal: float, pos_metabolites: np.array, pos_adducts: np.array):
-    best_delta = 10 ** 5 # eg infinity
-    best_indices = None
-    for ai, adduct in enumerate(pos_adducts):
-        adduct_f = float(adduct)
-        pos_weights = adduct_f + pos_metabolites 
-        positive_pos_weights = pos_weights[pos_weights >= 0.0] # remove negative weights
-        pos_deltas = positive_pos_weights - signal
-        if np.amin(pos_deltas) < best_delta:
-            mi = np.argmin(pos_deltas)
+def find_optimal_ma_comb(signal: float, pos_metabolites: np.array, pos_adducts: np.array, pos_metabolites_sort_i: np.array):
+    best_delta = None
+    best_indices = None # (mi, ai)
+    # For each adduct, find the best metabolite
+    for ai, adduct in enumerate(pos_adducts): # Signal = metabolite + adduct + delta
+        wanted_metabolite_weight = signal - adduct
+        best_met, mi = find_nearest(pos_metabolites, wanted_metabolite_weight, pos_metabolites_sort_i)
+        if (best_met + adduct < 0):
+            continue # Skip negatives
+        delta = abs(signal - best_met - adduct)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
             best_indices = (mi, ai)
-            if (np.amin(pos_deltas) == 0.0):
-                return best_indices
     return best_indices
-
-
-def create_weight_2darray(pos_metabolites: list, pos_adducts: list):
-    weight_arr = np.zeros(shape=(len(pos_metabolites), len(pos_adducts)))
-
-    for mi, metabolite in enumerate(pos_metabolites):
-        for ai, adduct in enumerate(pos_adducts):
-            combined_mass = metabolite + adduct
-            if combined_mass < 0:
-                combined_mass = 10**3
-            weight_arr[mi, ai] = combined_mass
-    return weight_arr
 
 
 if __name__ == "__main__":
@@ -68,9 +68,9 @@ if __name__ == "__main__":
     result_ids = []
     for problem in problems:
         pos_metabolites, pos_adducts, signals = problem
-        signals = signals[:10]
+        pos_metabolites_sort_i = np.argsort(pos_metabolites)
         for signal in signals:
-            optimal_comb = find_optimal_ma_comb(signal, pos_metabolites, pos_adducts)
+            optimal_comb = find_optimal_ma_comb(signal, pos_metabolites, pos_adducts, pos_metabolites_sort_i)
             result_ids.append(optimal_comb)
     results = result_ids # ray.get(result_ids)
 
