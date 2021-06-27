@@ -1,4 +1,5 @@
 import sys
+from multiprocessing import Pool
 
 def parse_input(fn):
     lines = open(fn).readlines()
@@ -74,7 +75,10 @@ def read_is_isoform(problem_isoform, isoform, delta):
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
-def find_options(problem_isoform, isoforms, delta):
+isoforms = []
+delta = 0
+
+def find_options(problem_isoform):
     options = []
     for i, isoform in enumerate(isoforms):
         if read_is_isoform(problem_isoform, isoform, delta):
@@ -83,12 +87,29 @@ def find_options(problem_isoform, isoforms, delta):
 
 if __name__ == "__main__":
     isoforms, problem_isoforms, delta = parse_input(sys.argv[1])
-    
-    for i, problem_isoform in enumerate(problem_isoforms):
-        if i % 100 == 0:
-            eprint('At i/total: {}/{}'.format(i, len(problem_isoforms)))
-        all_options = find_options(problem_isoform, isoforms, delta)
-        if len(all_options) == 0:
-            print('-1 0')
-        else:
-            print('{} {}'.format(all_options[0], len(all_options)))
+
+    if sys.argv[2] != 'benchmark':
+        results = []
+        with Pool() as p:
+            results = p.map(find_options, problem_isoforms)        
+
+        # results = [ray.get(res_id) for res_id in result_ids]
+        for all_options in results:
+            if len(all_options) == 0:
+                print('-1 0')
+            else:
+                print('{} {}'.format(all_options[0], len(all_options)))
+    else:
+        results = []
+        
+        for i, problem_isoform in enumerate(problem_isoforms):
+            if i % 1 == 0:
+                eprint('At i/totali: {}/{}'.format(i, len(problem_isoforms)))
+            result = find_options(problem_isoform)
+            results.append(result)
+            
+        for all_options in results:
+            if len(all_options) == 0:
+                print('-1 0')
+            else:
+                print('{} {}'.format(all_options[0], len(all_options)))
